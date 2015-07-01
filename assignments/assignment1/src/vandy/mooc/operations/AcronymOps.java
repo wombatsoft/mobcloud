@@ -155,7 +155,7 @@ public class AcronymOps
                 // two-way Retrofit RPC call.
                 // TODO -- you fill in here, replacying "null" with a
                 // call to the appropriate method on the proxy.
-                AcronymData result = null;
+                AcronymData result = mAcronymWebServiceProxy.getAcronymResults(acronym);
                         
                 // Get the "long forms" of the acronym expansion.
                 longForms = result.getLfs();
