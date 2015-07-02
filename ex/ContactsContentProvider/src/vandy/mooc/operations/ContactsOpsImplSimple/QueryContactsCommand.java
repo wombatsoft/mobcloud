@@ -2,8 +2,8 @@ package vandy.mooc.operations.ContactsOpsImplSimple;
 
 import java.util.Iterator;
 
+import vandy.mooc.common.Command;
 import vandy.mooc.operations.ContactsOpsImpl;
-import vandy.mooc.utils.ContactsCommand;
 import android.content.ContentResolver;
 import android.database.Cursor;
 import android.provider.ContactsContract;
@@ -13,7 +13,7 @@ import android.provider.ContactsContract.Contacts;
  * Query all the star'd contacts in the UI thread.
  */
 public class QueryContactsCommand
-       implements ContactsCommand {
+       implements Command<Iterator<String>> {
     /**
      * Store a reference to the ContactsOpsImpl object.
      */
@@ -39,16 +39,14 @@ public class QueryContactsCommand
      * Run the command.
      */
     @Override
-    public void execute(Iterator<String> ignore) {
+    public void execute(Iterator<String> unused) {
         // Query the Contacts ContentProvider for the contacts and
         // return them.
         Cursor cursor = queryAllContacts(mContentResolver);
 
         if (cursor != null
-            && cursor.getCount() != 0) {
-            mOps.setCursor(cursor);
+            && cursor.getCount() != 0) 
             mOps.displayCursor(cursor);
-        }
     }
 
     /**

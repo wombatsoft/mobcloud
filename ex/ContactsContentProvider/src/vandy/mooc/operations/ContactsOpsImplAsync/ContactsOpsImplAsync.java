@@ -1,54 +1,34 @@
 package vandy.mooc.operations.ContactsOpsImplAsync;
 
-import vandy.mooc.common.AsyncCommand;
-import vandy.mooc.common.GenericArrayIterator;
-import vandy.mooc.common.MutableInt;
-import vandy.mooc.common.Utils;
+import vandy.mooc.common.AsyncProviderCommandAdapter;
 import vandy.mooc.operations.ContactsOpsImpl;
 import android.app.Activity;
-import android.database.ContentObserver;
 import android.database.Cursor;
-import android.os.Handler;
-import android.provider.ContactsContract;
 
 /**
- * Class that implements the operations for inserting, querying,
- * modifying, and deleting contacts from the Android Contacts
- * ContentProvider using Android AsyncQueryHanders.  It implements
- * ConfigurableOps so it can be managed by the GenericActivity
- * framework.  It plays the role of the "Concrete Implementor" in the
- * Bridge pattern and also applies an variant of the Command pattern
- * to asynchronous dispatch the various operations on the Contacts
- * ContentProvider.
+ * Implements operations for inserting, querying, modifying, and
+ * deleting contacts from the Android Contacts ContentProvider using
+ * Android AsyncQueryHanders.  It plays the role of the "Concrete
+ * Implementor" in the Bridge pattern and also applies an variant of
+ * the Command pattern to asynchronously dispatch the various
+ * operations on the Contacts ContentProvider.
  */
 public class ContactsOpsImplAsync
        extends ContactsOpsImpl {
     /**
-     * Contains the most recent result from a query so the display can
-     * be updated after a runtime configuration change.
+     * Provides the target for asynchronous operations on a
+     * ContentProvider and serves as the dispatcher of callbacks to
+     * the onCompletion methods of AsyncProviderCommands after those
+     * operations complete.
      */
-    private Cursor mCursor;
+    private AsyncProviderCommandAdapter<CommandArgs> mAdapter;
 
     /**
-     * Keeps track of the number of contacts inserted, deleted, and
-     * modified.
+     * Accessor method that returns the AsyncProviderCommandAdapter.
      */
-    private MutableInt mCounter = new MutableInt(0);
-
-    /**
-     * Observer that's dispatched by the ContentResolver when Contacts
-     * change (e.g., are inserted or deleted).
-     */
-    private final ContentObserver contactsChangeContentObserver =
-        new ContentObserver(new Handler()) {
-            /**
-             * Trigger a query and display the results.
-             */
-            @Override
-            public void onChange (boolean selfChange) {
-                queryContacts();
-            }
-        };
+    public AsyncProviderCommandAdapter<CommandArgs> getAdapter() {
+        return mAdapter;
+    }
 
     /**
      * Hook method dispatched by the GenericActivity framework to
@@ -65,136 +45,99 @@ public class ContactsOpsImplAsync
         super.onConfiguration(activity,
                               firstTimeIn);
 
-        if (firstTimeIn) 
-            // Initialize the ContentObserver.
-            initializeContentObserver();
-        else if (mCursor != null)
+        if (firstTimeIn) {
+            // Initialize the ContactsCommands.
+            initializeCommands();
+
+            // Unregister the ContentObserver.
+            unregisterContentObserver();
+            
+            // Register the ContentObserver.
+            registerContentObserver();
+        } else if (mCursor != null)
             // Redisplay the contents of the cursor after a runtime
             // configuration change.
             displayCursor(mCursor);
     }
 
     /**
-     * Initialize the ContentObserver.
+     * Initialize all the ContactsCommands.
      */
-    public void initializeContentObserver() {
-        // Register a ContentObserver that's notified when Contacts
-        // change (e.g., are inserted or deleted).
-        mActivity.get().getContentResolver().registerContentObserver
-            (ContactsContract.Contacts.CONTENT_URI,
-             true,
-             contactsChangeContentObserver);
+    private void initializeCommands() {
+        // Create the AsyncProviderCommandAdapter.  This call *must*
+        // come before the following calls that initialize the
+        // commands.
+        mAdapter =
+            new AsyncProviderCommandAdapter<CommandArgs>
+                (getActivity().getContentResolver());
+
+        // Create a command that executes a GenericAsyncTask to
+        // perform the insertions off the UI Thread.
+        mCommands[ContactsCommandType.INSERT_COMMAND.ordinal()] =
+            new InsertContactsCommand(this);
+
+        // Create a command that executes a GenericAsyncTask to
+        // perform the queries off the UI Thread.
+        mCommands[ContactsCommandType.QUERY_COMMAND.ordinal()] =
+            new QueryContactsCommand(this);
+
+        // Create a command that executes a GenericAsyncTask to
+        // perform the modifications off the UI Thread.
+        mCommands[ContactsCommandType.MODIFY_COMMAND.ordinal()] =
+            new ModifyContactsCommand(this);
+
+        // Create a command that executes a GenericAsyncTask to
+        // perform the deletions off the UI Thread.
+        mCommands[ContactsCommandType.DELETE_COMMAND.ordinal()] =
+            new DeleteContactsCommand(this);
     }
 
     /**
-     * Execute the array of asyncCommands passed as a parameter.
-     */
-    protected void executeAsyncCommands(AsyncCommand[] asyncCommands) {
-        GenericArrayIterator<AsyncCommand> asyncCommandsIter = 
-             new GenericArrayIterator<>(asyncCommands);
-
-        // Pass the Iterator to each of the AsyncCommands passed as a
-        // parameter.
-        for (AsyncCommand asyncCommand : asyncCommands)
-            asyncCommand.setIterator(asyncCommandsIter);
-
-        // Start executing the first AsyncCommand in the chain of
-        // AsyncCommands.
-        asyncCommandsIter.next().execute();
-    }
-
-    /**
-     * Insert the contacts asynchronously.
+     * Insert the contacts.
      */
     public void insertContacts() {
-        mCounter.setValue(0);
-
-        // Start executing InsertAsyncCommand to insert the contacts
-        // into the Contacts Provider.
-        executeAsyncCommands
-            (new AsyncCommand[] {
-                new InsertAsyncCommand(this,
-                                       mContacts.iterator(),
-                                       mCounter),
-                // Print a toast after all the contacts are inserted.
-                makeToastAsyncCommand(" contact(s) inserted")
-            });
+        // Execute the INSERT_COMMAND.
+        mCommands[ContactsCommandType.INSERT_COMMAND.ordinal()].execute
+            (mContacts.iterator());
     }
 
     /**
-     * Query the contacts asynchronously.
+     * Query the contacts.
      */
     public void queryContacts() {
-        // Start executing the QueryAsyncCommand asynchronously, which
-        // print out the inserted contacts when the query is done.
-        executeAsyncCommands
-            (new AsyncCommand[] {
-                new QueryAsyncCommand(this)
-            });
+        // Execute the QUERY_COMMAND (which doesn't use the mContacts
+        // iterator).
+        mCommands[ContactsCommandType.QUERY_COMMAND.ordinal()].execute(null);
     }
 
     /**
-     * Modify the contacts asynchronously.
+     * Modify the contacts.
      */
     public void modifyContacts() {
-        mCounter.setValue(0);
-
-        // Start executing the ModifyAsyncCommand, which runs
-        // asynchronously.
-        executeAsyncCommands
-            (new AsyncCommand[] {
-                new ModifyAsyncCommand(this,
-                                       mModifyContacts.iterator(),
-                                       mCounter),
-                // Print a toast after all the contacts are modified.
-                makeToastAsyncCommand(" contact(s) modified")
-            });
+        // Execute the MODIFY_COMMAND.
+        mCommands[ContactsCommandType.MODIFY_COMMAND.ordinal()].execute
+            (mModifyContacts.iterator());
     }
 
     /**
-     * Delete the contacts asynchronously.
+     * Delete the contacts.
      */
     public void deleteContacts() {
-        mCounter.setValue(0);
-
-        // Start executing the DeleteAsyncCommand, which runs
-        // asynchronously.
-        executeAsyncCommands
-            (new AsyncCommand[] {
-                new DeleteAsyncCommand(this,
-                                       mModifyContacts.iterator(),
-                                       mCounter),
-                // Print a toast after all the contacts are deleted.
-                makeToastAsyncCommand(" contact(s) deleted")
-            });
-    }
-
-    /**
-     * Print a toast after all the contacts are deleted.
-     */
-    private AsyncCommand makeToastAsyncCommand(final String message) {
-        return new AsyncCommand(null) {
-            public void execute() {
-                Utils.showToast(mActivity.get(),
-                                mCounter.getValue()
-                                + message);
-            }
-        };
+        // Execute the DELETE_COMMAND.
+        mCommands[ContactsCommandType.DELETE_COMMAND.ordinal()].execute
+            (mModifyContacts.iterator());
     }
 
     /**
      * Display the contents of the cursor as a ListView.
      */
     public void displayCursor(Cursor cursor) {
+        // Store the most recent result from a query so the display
+        // can be updated after a runtime configuration change.
+        mCursor = cursor;
+
     	// Display the designated columns in the cursor as a List in
         // the ListView connected to the SimpleCursorAdapter.
-        mAdapter.changeCursor(cursor);
-    }
-
-    /**
-     * Set the cursor.
-     */
-    public void setCursor(Cursor cursor) {
-        mCursor = cursor;
+        mCursorAdapter.changeCursor(cursor);
     }
 }
